@@ -1,0 +1,30 @@
+# OmniStream .gitignore
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Local downloaded media files (never commit media binaries)
+downloads/*
+!downloads/.gitkeep
+
+# Temporary & Part files
+*.part
+*.ytdl
+*.temp
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.env
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OmniStream — Desktop Media Utility & Downloader</title>
+  <meta name="description" content="Professional desktop-grade media extractor. High-bitrate H.264 video and lossless audio downloads with local FFmpeg processing.">
+  
+  <!-- Typography: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2224%22 fill=%22%230E182B%22/><polygon points=%2235,25 75,50 35,75%22 fill=%22%2322D3EE%22/></svg>">
+</head>
+<body>
+  <!-- Ambient background glow (Restrained dark mode) -->
+  <div class="ambient-bg"></div>
+
+  <!-- App Shell Container -->
+  <div class="app-container">
+    
+    <!-- ==========================================
+         PERSISTENT SIDEBAR (Desktop 240px)
+         ========================================== -->
+    <aside class="sidebar" id="app-sidebar">
+      <div class="sidebar-header">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="6 3 20 12 6 21 6 3"></polygon>
+          </svg>
+        </div>
+        <div class="brand-meta">
+          <span class="brand-name">OmniStream</span>
+          <span class="brand-version">v2.4 Desktop Pro</span>
+        </div>
+      </div>
+
+      <!-- Navigation List -->
+      <nav class="sidebar-nav">
+        <!-- Section: Workspace -->
+        <div>
+          <div class="nav-section-title">Workspace</div>
+          <ul class="nav-list">
+            <li>
+              <button class="nav-item-btn active" data-view="downloader" id="nav-btn-downloader">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Downloader</span>
+              </button>
+            </li>
+            <li>
+              <button class="nav-item-btn" data-view="downloads" id="nav-btn-downloads">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+                <span>Downloads Queue</span>
+                <span class="nav-badge-pill" id="sidebar-queue-badge" style="display: none;">0</span>
+              </button>
+            </li>
+            <li>
+              <button class="nav-item-btn" data-view="history" id="nav-btn-history">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span>History</span>
+                <span class="nav-badge-pill" id="sidebar-history-badge">0</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section: Library -->
+        <div>
+          <div class="nav-section-title">Library</div>
+          <ul class="nav-list">
+            <li>
+              <button class="nav-item-btn" data-view="platforms" id="nav-btn-platforms">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                  <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                  <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                </svg>
+                <span>Supported Sites</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section: System -->
+        <div>
+          <div class="nav-section-title">System</div>
+          <ul class="nav-list">
+            <li>
+              <button class="nav-item-btn" data-view="settings" id="nav-btn-settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+                <span>Settings</span>
+              </button>
+            </li>
+            <li>
+              <button class="nav-item-btn" data-view="help" id="nav-btn-help">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <span>Help & Ethics</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </nav>
+
+      <!-- Sidebar Footer / Diagnostics Badge -->
+      <div class="sidebar-footer">
+        <button class="engine-status-btn" id="btn-diagnostics-badge" title="View Engine Diagnostics">
+          <span class="status-dot"></span>
+          <div class="engine-info">
+            <span class="engine-label" id="sidebar-engine-status">FFmpeg Ready</span>
+            <span class="engine-sublabel">Local Engine • Diagnostics</span>
+          </div>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ==========================================
+         MAIN APPLICATION AREA
+         ========================================== -->
+    <main class="app-main">
+      <!-- Topbar Header -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="sidebar-toggle-btn" id="mobile-sidebar-toggle" aria-label="Toggle menu">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="topbar-title">
+            <span>OmniStream</span>
+            <span style="color: var(--text-muted);">/</span>
+            <span class="topbar-title-current" id="topbar-active-view-title">Downloader</span>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Command Palette Trigger (Ctrl+K) -->
+          <button class="cmd-palette-btn" id="btn-trigger-palette" title="Quick Actions & Search (Ctrl+K)">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span>Command Palette</span>
+            <span class="cmd-badge">Ctrl K</span>
+          </button>
+
+          <!-- Drawer History Toggle -->
+          <button class="topbar-action-btn" id="btn-open-history-drawer" title="Quick Download History">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span>History</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Viewport Scrolling Container -->
+      <div class="view-viewport" id="main-viewport">
+        
+        <!-- ==========================================
+             VIEW 1: DOWNLOADER (Primary Screen)
+             ========================================== -->
+        <section class="view-page active" id="view-downloader">
+          <div class="downloader-header">
+            <div class="greeting-text" id="time-greeting">Good evening</div>
+            <h1 class="downloader-title">Unified Stream Extractor</h1>
+            <p class="downloader-subtitle">Inspect source streams, select native resolutions, and download universal H.264 video or lossless audio locally.</p>
+          </div>
+
+          <!-- URL Input Card with Drag & Drop -->
+          <div class="url-card" id="url-input-card">
+            <div class="url-platform-icon" id="url-platform-icon" title="Detected platform">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+              </svg>
+            </div>
+
+            <input 
+              type="url" 
+              id="main-url-input" 
+              class="main-url-input" 
+              placeholder="Paste media link or drag & drop URL here (YouTube, Instagram, X/Twitter, TikTok...)" 
+              autocomplete="off"
+              spellcheck="false"
+            >
+
+            <div class="url-card-actions">
+              <button class="btn-input-tool" id="btn-paste-url" title="Paste from clipboard">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span>Paste</span>
+                <span class="kbd-shortcut">Ctrl+V</span>
+              </button>
+              
+              <button class="btn-input-tool" id="btn-clear-url" title="Clear input" style="display: none;">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+
+              <button class="btn-analyze" id="btn-analyze">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <span>Analyze</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Supported Platforms Row -->
+          <div class="supported-quick-row">
+            <span class="supported-row-label">Supported:</span>
+            <button class="platform-pill active" data-platform="youtube">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              <span>YouTube</span>
+            </button>
+            <button class="platform-pill" data-platform="instagram">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+              <span>Instagram</span>
+            </button>
+            <button class="platform-pill" data-platform="twitter">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              <span>X / Twitter</span>
+            </button>
+            <button class="platform-pill" data-platform="tiktok">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-1.01-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.24 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+              <span>TikTok</span>
+            </button>
+            <button class="platform-pill" data-platform="reddit">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701z"/></svg>
+              <span>Reddit</span>
+            </button>
+            <button class="platform-pill platform-pill-more" id="btn-view-all-platforms">+ 1000 More Sites</button>
+          </div>
+
+          <!-- Multi-Step Analysis Skeleton State -->
+          <div class="analysis-progress-card" id="analysis-progress-card" style="display: none;">
+            <div class="analysis-header">
+              <svg class="spin-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                <path d="M12 2a10 10 0 0 1 10 10"></path>
+              </svg>
+              <span id="analysis-status-text">Probing Remote Media Stream...</span>
+            </div>
+
+            <ul class="analysis-steps">
+              <li class="step-item active" id="step-resolve">
+                <span class="step-bullet">●</span>
+                <span>Connecting to source provider & verifying access...</span>
+              </li>
+              <li class="step-item pending" id="step-streams">
+                <span class="step-bullet">○</span>
+                <span>Parsing video bitrates & audio stream manifests...</span>
+              </li>
+              <li class="step-item pending" id="step-h264">
+                <span class="step-bullet">○</span>
+                <span>Synthesizing compatible H.264 (AVC) + AAC options...</span>
+              </li>
+            </ul>
+
+            <div class="skeleton-card">
+              <div class="skeleton-thumb"></div>
+              <div class="skeleton-lines">
+                <div class="skeleton-line title"></div>
+                <div class="skeleton-line meta"></div>
+                <div class="skeleton-line btn"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Analysis Error Card -->
+          <div class="state-error-card" id="analysis-error-card" style="display: none;">
+            <div class="error-icon-box">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <div class="error-body">
+              <h4 id="error-card-title">Stream Resolution Error</h4>
+              <p id="error-card-msg">The URL could not be resolved. Please verify that the link is public, accessible, and not age-restricted.</p>
+              <button class="btn-retry" id="btn-retry-analysis">Try Again</button>
+            </div>
+          </div>
+
+          <!-- Stream Inspector / Result Card -->
+          <div class="inspector-card" id="inspector-card" style="display: none;">
+            <div class="inspector-header">
+              <span class="inspector-tag">Stream Inspector</span>
+              <button class="btn-dismiss" id="btn-dismiss-inspector" title="Close inspector">✕</button>
+            </div>
+
+            <div class="inspector-grid">
+              <!-- Thumbnail Preview Box -->
+              <div class="media-preview-box">
+                <img src="" alt="Video thumbnail" class="media-thumb-img" id="inspector-thumb">
+                <span class="media-duration-chip" id="inspector-duration">00:00</span>
+              </div>
+
+              <!-- Media Metadata & Format Selector -->
+              <div class="inspector-details">
+                <h3 class="media-title-text" id="inspector-title">Video Title</h3>
+                <div class="media-meta-line">
+                  <span id="inspector-channel">Channel</span>
+                  <span>•</span>
+                  <span id="inspector-views">0 views</span>
+                  <span>•</span>
+                  <span id="inspector-platform-badge" style="color: var(--accent-cyan); font-weight: 600;">YouTube</span>
+                </div>
+
+                <!-- Format Segmented Switcher (Video vs Audio) -->
+                <div class="format-segmented-control" id="format-segment-control">
+                  <button class="segment-btn active" data-type="video" id="segment-btn-video">Video (MP4 / H.264)</button>
+                  <button class="segment-btn" data-type="audio" id="segment-btn-audio">Audio (MP3 / 320k)</button>
+                </div>
+
+                <!-- Progressive Disclosure: Recommended Best Option Box -->
+                <div class="recommended-option-box" id="recommended-box">
+                  <div class="rec-left">
+                    <div class="rec-title">
+                      <span id="rec-title-text">Best Quality 1080p MP4</span>
+                      <span class="badge-rec">RECOMMENDED</span>
+                    </div>
+                    <div class="rec-desc" id="rec-desc-text">H.264 High Profile + AAC 192k • Universal Windows & Mobile Playback</div>
+                  </div>
+                  <div class="rec-right" style="font-size: 0.88rem; font-weight: 700; color: var(--accent-cyan);" id="rec-size-text">
+                    Best Available
+                  </div>
+                </div>
+
+                <!-- Toggle for More Formats -->
+                <button class="btn-toggle-disclosure" id="btn-toggle-disclosure">
+                  <span id="toggle-disclosure-text">Show all available streams (6)</span>
+                  <svg id="toggle-disclosure-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+
+                <!-- Expandable Quality Grid -->
+                <div class="quality-selection-grid" id="quality-selection-grid" style="display: none;">
+                  <!-- Dynamically populated or switchable -->
+                </div>
+
+                <!-- Primary Download Action CTA -->
+                <button class="btn-primary-cta" id="btn-start-download">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span id="btn-start-download-label">Download 1080p MP4</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Download Inline Progress Card -->
+          <div class="download-active-card" id="inline-download-card" style="display: none;">
+            <div class="dl-card-top">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="dl-status-badge" id="inline-dl-status">
+                  <span class="status-dot"></span>
+                  <span id="inline-dl-status-label">Downloading Stream...</span>
+                </span>
+                <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);" id="inline-dl-title">Title</span>
+              </div>
+              <button class="btn-input-tool" id="btn-inline-cancel" style="padding: 4px 10px; font-size: 0.74rem;">Cancel</button>
+            </div>
+
+            <div class="dl-progress-track">
+              <div class="dl-progress-fill" id="inline-dl-progress-fill" style="width: 0%;"></div>
+            </div>
+
+            <div class="dl-metrics-row">
+              <div>
+                <span class="dl-pct" id="inline-dl-pct">0%</span>
+                <span style="margin: 0 6px;">•</span>
+                <span id="inline-dl-speed">0 MB/s</span>
+              </div>
+              <div>
+                <span id="inline-dl-downloaded">0 MB</span> / <span id="inline-dl-total">0 MB</span>
+                <span style="margin: 0 6px;">•</span>
+                <span>ETA: <span id="inline-dl-eta">--</span></span>
+              </div>
+            </div>
+
+            <div class="dl-completed-actions" id="inline-dl-completed-actions" style="display: none;">
+              <a href="#" class="btn-primary-cta" id="btn-inline-direct-download" style="padding: 8px 18px; font-size: 0.84rem; text-decoration: none;" download>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Save to Browser</span>
+              </a>
+              <button class="btn-input-tool" id="btn-inline-open-folder">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>Reveal in File Explorer</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section: How It Works -->
+          <div class="section-wrapper">
+            <h3 class="section-heading-sm">How OmniStream Processes Media</h3>
+            <div class="flow-steps-grid">
+              <div class="flow-step-card">
+                <div class="step-num">STEP 01</div>
+                <h4>Stream Probing</h4>
+                <p>yt-dlp inspects remote adaptive DASH & HLS video manifests without triggering rate limits.</p>
+              </div>
+              <div class="flow-step-card">
+                <div class="step-num">STEP 02</div>
+                <h4>H.264 Synthesis</h4>
+                <p>Video is filtered for AVC/H.264 profiles while AAC 192k stereo is extracted for native Windows/QuickTime playback.</p>
+              </div>
+              <div class="flow-step-card">
+                <div class="step-num">STEP 03</div>
+                <h4>FFmpeg Local Mux</h4>
+                <p>Isolated threads stream directly to disk and mux the container with zero re-encoding loss in seconds.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section: Local Processing Architecture -->
+          <div class="section-wrapper">
+            <h3 class="section-heading-sm">Local Engine Pipeline</h3>
+            <div class="tech-architecture-box">
+              <div class="tech-flow-diagram">
+                <div class="tech-node">Target URL</div>
+                <span class="tech-arrow">→</span>
+                <div class="tech-node">Flask Local Service</div>
+                <span class="tech-arrow">→</span>
+                <div class="tech-node">yt-dlp Engine</div>
+                <span class="tech-arrow">→</span>
+                <div class="tech-node">FFmpeg 8.1 Muxer</div>
+                <span class="tech-arrow">→</span>
+                <div class="tech-node" style="border-color: var(--accent-cyan); color: var(--accent-cyan);">Universal MP4 / MP3</div>
+              </div>
+              <p style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.45;">
+                All media downloads are executed 100% locally on your machine via direct TCP streams. No third-party proxy servers, zero data collection, and no audio desynchronization.
+              </p>
+            </div>
+          </div>
+
+          <!-- Section: Features 4-column Grid -->
+          <div class="section-wrapper">
+            <h3 class="section-heading-sm">Desktop-Grade Features</h3>
+            <div class="features-grid">
+              <div class="feature-item-card">
+                <div class="feature-icon-glyph">⚡</div>
+                <h4>Universal Codec Compatibility</h4>
+                <p>Enforces H.264 (avc1) video and AAC (mp4a) audio to guarantee instant playback in Windows Media Player and Apple TV.</p>
+              </div>
+              <div class="feature-item-card">
+                <div class="feature-icon-glyph">🔒</div>
+                <h4>100% Private & Local</h4>
+                <p>Processes occur on 127.0.0.1. No account registration, no telemetry tracking, and zero advertising.</p>
+              </div>
+              <div class="feature-item-card">
+                <div class="feature-icon-glyph">🎵</div>
+                <h4>Lossless Audio Extraction</h4>
+                <p>Converts YouTube and TikTok videos directly into crystal-clear 320kbps MP3s with full ID3 metadata tags.</p>
+              </div>
+              <div class="feature-item-card">
+                <div class="feature-icon-glyph">📁</div>
+                <h4>Native Explorer Integration</h4>
+                <p>One-click folder reveal immediately displays the completed video in Windows File Explorer.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section: Frequently Asked Questions -->
+          <div class="section-wrapper">
+            <h3 class="section-heading-sm">Frequently Asked Questions</h3>
+            <div class="faq-accordion" id="faq-accordion">
+              <div class="faq-item">
+                <button class="faq-trigger">
+                  <span>Why does Windows Media Player play audio but not video on some sites?</span>
+                  <svg class="faq-icon-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="faq-content">
+                  Most online video services stream default 1080p using Google's open-source VP9 codec. Default Windows installations lack the VP9 Video Extensions package, throwing error <code>0xc00d36c4</code>. OmniStream resolves this by querying for H.264 streams or repackaging with AAC audio.
+                </div>
+              </div>
+              <div class="faq-item">
+                <button class="faq-trigger">
+                  <span>Where are downloaded videos saved on my PC?</span>
+                  <svg class="faq-icon-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="faq-content">
+                  Files are saved locally in your OmniStream workspace directory under <code>downloads/</code>. You can click "Reveal in File Explorer" on any completed task to open the folder instantly.
+                </div>
+              </div>
+              <div class="faq-item">
+                <button class="faq-trigger">
+                  <span>Can I download full playlists or YouTube Shorts?</span>
+                  <svg class="faq-icon-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="faq-content">
+                  Yes. Paste the URL of any YouTube Short, Instagram Reel, or Twitter video clip. The engine identifies the canonical stream link and extracts it at maximum available bitrate.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- App Footer -->
+          <footer class="app-footer">
+            <div class="footer-nav">
+              <a href="#" data-switch-view="downloader">Downloader</a>
+              <a href="#" data-switch-view="downloads">Downloads Queue</a>
+              <a href="#" data-switch-view="platforms">Supported Platforms</a>
+              <a href="#" data-switch-view="settings">Settings</a>
+              <a href="#" data-switch-view="help">Responsible Use</a>
+            </div>
+            <div>
+              OmniStream Local Media Utility • Built for high performance with Python 3, Flask, yt-dlp & FFmpeg.
+            </div>
+          </footer>
+        </section>
+
+        <!-- ==========================================
+             VIEW 2: DOWNLOADS QUEUE (Active & Completed)
+             ========================================== -->
+        <section class="view-page" id="view-downloads">
+          <div class="view-heading-row">
+            <div>
+              <h2 class="page-title">Downloads Manager</h2>
+              <p style="font-size: 0.86rem; color: var(--text-muted);">Monitor in-flight download streams and manage local media assets.</p>
+            </div>
+            <button class="btn-input-tool" id="btn-refresh-downloads">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              <span>Refresh Queue</span>
+            </button>
+          </div>
+
+          <!-- Filters Bar -->
+          <div class="view-filter-bar">
+            <div class="filter-pills-group">
+              <button class="filter-pill-btn active" data-filter="all">All Items</button>
+              <button class="filter-pill-btn" data-filter="active">Active</button>
+              <button class="filter-pill-btn" data-filter="completed">Completed</button>
+              <button class="filter-pill-btn" data-filter="failed">Failed</button>
+            </div>
+
+            <div class="search-input-box">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="downloads-search-input" placeholder="Filter downloads...">
+            </div>
+          </div>
+
+          <!-- Downloads List -->
+          <div class="downloads-list" id="downloads-list-container">
+            <!-- Populated via JavaScript -->
+          </div>
+
+          <!-- Empty State -->
+          <div class="empty-state-card" id="downloads-empty-state" style="display: none;">
+            <div class="empty-state-icon">📥</div>
+            <h4>No Downloads In Queue</h4>
+            <p>Paste a video URL on the Downloader screen to start extracting high-quality media.</p>
+            <button class="btn-primary-cta" data-switch-view="downloader" style="margin-top: 10px;">Go to Downloader</button>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 3: HISTORY
+             ========================================== -->
+        <section class="view-page" id="view-history">
+          <div class="view-heading-row">
+            <div>
+              <h2 class="page-title">Download History</h2>
+              <p style="font-size: 0.86rem; color: var(--text-muted);">Historical log of all media extracted during your sessions.</p>
+            </div>
+            <button class="btn-input-tool" id="btn-clear-history-all" style="color: var(--error);">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              <span>Clear History</span>
+            </button>
+          </div>
+
+          <div class="view-filter-bar">
+            <div class="search-input-box" style="width: 100%;">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="history-search-input" placeholder="Search by title, platform or format...">
+            </div>
+          </div>
+
+          <div class="downloads-list" id="history-list-container">
+            <!-- Populated via JavaScript -->
+          </div>
+
+          <div class="empty-state-card" id="history-empty-state" style="display: none;">
+            <div class="empty-state-icon">🕒</div>
+            <h4>History is Empty</h4>
+            <p>Your finished downloads will appear here with quick options to re-download or reveal in File Explorer.</p>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 4: SUPPORTED PLATFORMS DIRECTORY
+             ========================================== -->
+        <section class="view-page" id="view-platforms">
+          <div class="view-heading-row">
+            <div>
+              <h2 class="page-title">Supported Platform Directory</h2>
+              <p style="font-size: 0.86rem; color: var(--text-muted);">OmniStream harnesses yt-dlp to support video and audio extraction from over 1,000 domains.</p>
+            </div>
+          </div>
+
+          <div class="view-filter-bar">
+            <div class="filter-pills-group" id="platform-category-filters">
+              <button class="filter-pill-btn active" data-category="all">All Sites</button>
+              <button class="filter-pill-btn" data-category="video">Video Portals</button>
+              <button class="filter-pill-btn" data-category="social">Social Media</button>
+              <button class="filter-pill-btn" data-category="audio">Audio & Music</button>
+              <button class="filter-pill-btn" data-category="streaming">Live Streams</button>
+            </div>
+
+            <div class="search-input-box">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="platforms-search-input" placeholder="Search platform (e.g. Vimeo, Soundcloud)...">
+            </div>
+          </div>
+
+          <div class="platforms-grid" id="platforms-grid-container">
+            <!-- Populated via JavaScript with 20+ top sites -->
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 5: SETTINGS
+             ========================================== -->
+        <section class="view-page" id="view-settings">
+          <div class="view-heading-row">
+            <div>
+              <h2 class="page-title">Application Settings</h2>
+              <p style="font-size: 0.86rem; color: var(--text-muted);">Configure default stream formats, local storage directories, and system behaviors.</p>
+            </div>
+            <button class="btn-primary-cta" id="btn-save-settings" style="padding: 8px 16px; font-size: 0.82rem;">Save Changes</button>
+          </div>
+
+          <!-- Section: Extraction Preferences -->
+          <div class="settings-section-card">
+            <h3 class="settings-card-title">Extraction Preferences</h3>
+            
+            <div class="setting-row">
+              <div class="setting-info">
+                <h5>Default Video Quality</h5>
+                <p>Primary resolution selected when inspecting new media streams.</p>
+              </div>
+              <div class="setting-control">
+                <select id="setting-default-quality">
+                  <option value="1080p" selected>1080p (Full HD - Universal)</option>
+                  <option value="2160p">2160p (4K Ultra HD)</option>
+                  <option value="720p">720p (Fast Download)</option>
+                  <option value="audio">Audio Only (MP3)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <h5>Audio Encoding Bitrate</h5>
+                <p>Bitrate target when converting streams to standalone MP3 audio files.</p>
+              </div>
+              <div class="setting-control">
+                <select id="setting-audio-bitrate">
+                  <option value="320">320 kbps (High Fidelity)</option>
+                  <option value="256">256 kbps (Standard Quality)</option>
+                  <option value="192">192 kbps (Compact Size)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <h5>Strict H.264 Playback Guarantee</h5>
+                <p>Prioritizes AVC1/H.264 over VP9 to prevent Windows Media Player codec errors.</p>
+              </div>
+              <div class="setting-control">
+                <input type="checkbox" id="setting-strict-h264" checked>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section: Storage & Performance -->
+          <div class="settings-section-card">
+            <h3 class="settings-card-title">Storage & Local System</h3>
+            
+            <div class="setting-row">
+              <div class="setting-info">
+                <h5>Destination Directory</h5>
+                <p>Folder where downloaded files are saved on your computer.</p>
+              </div>
+              <div class="setting-control" style="display: flex; gap: 8px;">
+                <input type="text" id="setting-download-dir" value="downloads/" readonly style="width: 220px; color: var(--text-muted);">
+                <button class="btn-input-tool" id="btn-settings-open-dir">Open Folder</button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <h5>Auto-Reveal Completed Tasks</h5>
+                <p>Automatically open Windows File Explorer when a download finishes.</p>
+              </div>
+              <div class="setting-control">
+                <input type="checkbox" id="setting-auto-reveal">
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <h5>Clear Workspace Cache</h5>
+                <p>Purge temporary session files and local browsing history.</p>
+              </div>
+              <div class="setting-control">
+                <button class="btn-input-tool" id="btn-purge-cache" style="color: var(--warning);">Purge Cache</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 6: HELP & ETHICS
+             ========================================== -->
+        <section class="view-page" id="view-help">
+          <div class="view-heading-row">
+            <div>
+              <h2 class="page-title">Help & Responsible Usage</h2>
+              <p style="font-size: 0.86rem; color: var(--text-muted);">Guidelines for fair use, open-source engine attributions, and local privacy guarantees.</p>
+            </div>
+          </div>
+
+          <div class="settings-section-card">
+            <h3 class="settings-card-title">Responsible Use & Fair Use Guidance</h3>
+            <p style="font-size: 0.84rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 14px;">
+              OmniStream is engineered as a local personal utility for content creators, researchers, and offline backup storage. You should only download media when you have obtained permission from the copyright owner, when the work is distributed under an open license (such as Creative Commons), or where your use falls cleanly within the Fair Use or Fair Dealing statutory exemptions of your jurisdiction.
+            </p>
+            <p style="font-size: 0.84rem; color: var(--text-secondary); line-height: 1.6;">
+              Do not use this software to distribute copyrighted commercial works, bypass DRM encryption, or violate third-party Terms of Service.
+            </p>
+          </div>
+
+          <div class="settings-section-card">
+            <h3 class="settings-card-title">Open-Source Attributions</h3>
+            <p style="font-size: 0.84rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px;">
+              OmniStream is powered by world-class open-source projects:
+            </p>
+            <ul style="margin-left: 20px; font-size: 0.84rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 8px;">
+              <li><strong>yt-dlp:</strong> Command-line audio/video downloader for hundreds of video sites.</li>
+              <li><strong>FFmpeg:</strong> Complete, cross-platform solution to record, convert, and stream audio and video.</li>
+              <li><strong>Flask:</strong> Lightweight WSGI web application framework for local Python services.</li>
+            </ul>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ==========================================
+       OVERLAY: COMMAND PALETTE (Ctrl+K)
+       ========================================== -->
+  <div class="modal-overlay" id="palette-modal">
+    <div class="palette-box">
+      <div class="palette-input-wrap">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-muted);">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" class="palette-input" id="palette-search-input" placeholder="Type a command, navigate views, or paste URL..." autofocus>
+        <span class="cmd-badge">ESC</span>
+      </div>
+      <div class="palette-results" id="palette-results-container">
+        <!-- Filled dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       OVERLAY: ENGINE DIAGNOSTICS MODAL
+       ========================================== -->
+  <div class="modal-overlay" id="diagnostics-modal">
+    <div class="diagnostics-box">
+      <div class="diag-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="status-dot"></span>
+          <h3 style="font-size: 1.05rem; font-weight: 700;">Engine Diagnostics</h3>
+        </div>
+        <button class="btn-dismiss" id="btn-close-diagnostics">✕</button>
+      </div>
+
+      <div id="diagnostics-content">
+        <div class="diag-row">
+          <span class="diag-key">Backend Server</span>
+          <span class="diag-val" style="color: var(--success);" id="diag-server-status">Online (127.0.0.1:5000)</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-key">FFmpeg Binary</span>
+          <span class="diag-val" id="diag-ffmpeg-ver">Installed (Ready)</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-key">yt-dlp Core</span>
+          <span class="diag-val" id="diag-ytdlp-ver">2026.08.19</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-key">Available Disk Space</span>
+          <span class="diag-val" id="diag-disk-free">-- GB Free</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-key">Storage Directory</span>
+          <span class="diag-val" style="font-family: 'JetBrains Mono', monospace; font-size: 0.76rem;" id="diag-storage-path">downloads/</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-key">Active Download Jobs</span>
+          <span class="diag-val" id="diag-active-tasks">0 Running</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-key">Total Jobs Completed</span>
+          <span class="diag-val" id="diag-total-tasks">0</span>
+        </div>
+      </div>
+
+      <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn-input-tool" id="btn-refresh-diag">Refresh Metrics</button>
+        <button class="btn-primary-cta" id="btn-dismiss-diag-btn" style="padding: 6px 16px; font-size: 0.8rem;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       OVERLAY: HISTORY DRAWER (Quick Access)
+       ========================================== -->
+  <div class="history-drawer" id="history-drawer">
+    <div class="drawer-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <h4 style="font-size: 0.95rem; font-weight: 700;">Recent Downloads</h4>
+      </div>
+      <button class="btn-dismiss" id="btn-close-drawer">✕</button>
+    </div>
+    <div class="drawer-body" id="drawer-history-list">
+      <!-- Populated via JS -->
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Application Logic -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
