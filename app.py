@@ -51,7 +51,19 @@ def detect_ffmpeg() -> bool:
         return False
 
 HAS_FFMPEG = detect_ffmpeg()
-logger.info(f"OmniStream Engine initialized. Serverless={IS_SERVERLESS}, FFmpeg={HAS_FFMPEG}, Downloads={DOWNLOADS_DIR}")
+
+# Optional cookies support for high-volume YouTube extraction on cloud hosts
+COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")
+if not os.path.exists(COOKIES_FILE) and os.environ.get("YOUTUBE_COOKIES"):
+    try:
+        with open(COOKIES_FILE, "w", encoding="utf-8") as f:
+            f.write(os.environ["YOUTUBE_COOKIES"])
+    except Exception as e:
+        logger.warning(f"Could not write YOUTUBE_COOKIES to file: {e}")
+
+HAS_COOKIES = os.path.exists(COOKIES_FILE)
+
+logger.info(f"OmniStream Engine initialized. Serverless={IS_SERVERLESS}, FFmpeg={HAS_FFMPEG}, Cookies={HAS_COOKIES}, Downloads={DOWNLOADS_DIR}")
 
 app = Flask(__name__, static_folder="static")
 CORS(app)
@@ -59,6 +71,23 @@ CORS(app)
 # In-memory dictionary tracking download tasks
 tasks = {}
 tasks_lock = threading.Lock()
+
+class SilentLogger:
+    """
+    Suppresses yt-dlp terminal ANSI progress writes, preventing
+    'OSError: [Errno 22] Invalid argument' on Windows Python 3.13 in multithreaded/daemon environments.
+    """
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        logger.warning(f"[yt-dlp] {msg}")
+
+    def error(self, msg):
+        logger.error(f"[yt-dlp] {msg}")
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -69,9 +98,8 @@ DEFAULT_HEADERS = {
 
 DEFAULT_EXTRACTOR_ARGS = {
     "youtube": {
-        # Using android and ios clients bypasses bot challenges & sign-in requirements on datacenter/cloud IPs
-        "player_client": ["android", "ios", "mweb", "web"],
-        "player_skip": ["webpage", "configs"],
+        # Using Android clients without player_skip prevents 'Please sign in' / 'page needs to be reloaded'
+        "player_client": ["android", "android_vr"],
     },
     "twitter": {
         "api": ["syndication", "graphql"]
@@ -158,6 +186,72 @@ if not IS_SERVERLESS:
     cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
     cleanup_thread.start()
 
+def extract_youtube_info(url: str):
+    """
+    Multi-chain YouTube metadata extractor with automatic fallback:
+    Chain 1: Android & Android VR clients (avoids bot detection on datacenter/cloud IPs)
+    Chain 2: TV & Web Safari clients
+    Chain 3: iOS & Mobile Web clients
+    Chain 4: Google Official oEmbed API fallback for metadata if all cloud extractions are rate-limited
+    """
+    chains = [
+        ["android", "android_vr"],
+        ["tv", "web_safari"],
+        ["ios", "mweb"]
+    ]
+
+    base_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "logger": SilentLogger(),
+        "skip_download": True,
+        "extract_flat": False,
+        "http_headers": DEFAULT_HEADERS,
+    }
+    if HAS_COOKIES:
+        base_opts["cookiefile"] = COOKIES_FILE
+
+    last_error = None
+    for client_list in chains:
+        try:
+            ydl_opts = dict(base_opts)
+            ydl_opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": client_list
+                }
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if info and (info.get("formats") or info.get("url") or info.get("title")):
+                    logger.info(f"YouTube extraction succeeded with clients: {client_list}")
+                    return info
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"YouTube client chain {client_list} failed: {e}")
+
+    # Fallback to Google YouTube oEmbed API for video metadata if all yt-dlp clients are blocked on cloud IP
+    try:
+        clean_url = url.split("?")[0] if "youtu.be" in url else url
+        oembed_url = f"https://www.youtube.com/oembed?url={clean_url}&format=json"
+        res = requests.get(oembed_url, timeout=5)
+        if res.status_code == 200:
+            oe = res.json()
+            logger.info("Retrieved YouTube metadata via Google oEmbed fallback")
+            return {
+                "title": oe.get("title") or "YouTube Video",
+                "thumbnail": oe.get("thumbnail_url") or "",
+                "uploader": oe.get("author_name") or "YouTube Creator",
+                "duration": None,
+                "view_count": None,
+                "formats": [],
+                "is_oembed_fallback": True,
+            }
+    except Exception as oe_err:
+        logger.warning(f"oEmbed fallback error: {oe_err}")
+
+    raise Exception(last_error or "Unable to resolve video stream from YouTube.")
+
 @app.route("/")
 def index():
     return send_from_directory(STATIC_DIR, "index.html")
@@ -176,18 +270,26 @@ def get_info():
 
     platform = detect_platform(url)
 
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "extract_flat": False,
-        "http_headers": DEFAULT_HEADERS,
-        "extractor_args": DEFAULT_EXTRACTOR_ARGS,
-    }
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        if platform == "youtube":
+            info = extract_youtube_info(url)
+        else:
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "noprogress": True,
+                "logger": SilentLogger(),
+                "skip_download": True,
+                "extract_flat": False,
+                "http_headers": DEFAULT_HEADERS,
+                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
+            }
+            if HAS_COOKIES:
+                ydl_opts["cookiefile"] = COOKIES_FILE
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
     except Exception as e:
         err_msg = str(e)
         logger.error(f"Extraction error for {url}: {err_msg}")
@@ -196,7 +298,7 @@ def get_info():
         elif "Private video" in err_msg or "Sign in" in err_msg:
             err_msg = "This video is private, age-restricted, or requires platform login."
         elif "bot" in err_msg.lower():
-            err_msg = "Source platform bot protection active. Please try again in a few moments."
+            err_msg = "YouTube bot defense active on this cloud host. Please run OmniStream locally with run.bat for instant downloads!"
         else:
             err_msg = re.sub(r'ERROR:\s*', '', err_msg)
         return jsonify({"success": False, "error": err_msg}), 400
@@ -258,11 +360,11 @@ def get_info():
     else:
         fallback_direct = info.get("url")
         available_videos.append({
-            "height": 1080,
-            "label": "Best Quality",
+            "height": 720 if info.get("is_oembed_fallback") else 1080,
+            "label": "Original Quality (Local Engine)",
             "ext": "mp4",
-            "badge": "Original HD",
-            "size_formatted": "Auto",
+            "badge": "HD",
+            "size_formatted": "Full Bitrate",
             "direct_url": fallback_direct if (fallback_direct and fallback_direct.startswith("http")) else None,
             "is_progressive": True
         })
@@ -281,7 +383,11 @@ def get_info():
     }
 
     # Best direct URL fallback
-    direct_download_link = best_direct_url.get("url") if best_direct_url else (info.get("url") if info.get("url", "").startswith("http") else None)
+    direct_download_link = best_direct_url.get("url") if best_direct_url else (info.get("url") if (info.get("url") and info.get("url", "").startswith("http")) else None)
+
+    cloud_notice = None
+    if info.get("is_oembed_fallback"):
+        cloud_notice = "YouTube has restricted cloud scraping on this Vercel datacenter IP. Run OmniStream locally via run.bat for 100% full-speed unrestricted downloads!"
 
     return jsonify({
         "success": True,
@@ -298,7 +404,8 @@ def get_info():
             "audio_format": audio_option,
             "direct_download_url": direct_download_link,
             "has_ffmpeg": HAS_FFMPEG,
-            "is_serverless": IS_SERVERLESS
+            "is_serverless": IS_SERVERLESS,
+            "cloud_notice": cloud_notice
         }
     })
 
@@ -340,37 +447,47 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
                 tasks[task_id]["eta"] = "Assembling video & audio..."
 
     out_template = os.path.join(DOWNLOADS_DIR, f"{task_id}.%(ext)s")
+    platform = detect_platform(url)
+
+    # Base options: noprogress=True and logger=SilentLogger() completely suppress minicurses
+    # which prevents OSError: [Errno 22] Invalid argument in Windows Python 3.13
+    base_ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "logger": SilentLogger(),
+        "nopart": True,
+        "progress_hooks": [progress_hook],
+        "http_headers": DEFAULT_HEADERS,
+        "outtmpl": out_template,
+    }
+
+    if platform == "youtube":
+        base_ydl_opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["android", "android_vr"]
+            }
+        }
+    else:
+        base_ydl_opts["extractor_args"] = DEFAULT_EXTRACTOR_ARGS
+
+    if HAS_COOKIES:
+        base_ydl_opts["cookiefile"] = COOKIES_FILE
 
     if media_type == "audio":
         if HAS_FFMPEG:
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": out_template,
-                "nopart": True,
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }],
-                "progress_hooks": [progress_hook],
-                "quiet": True,
-                "no_warnings": True,
-                "http_headers": DEFAULT_HEADERS,
-                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
-            }
+            ydl_opts = dict(base_ydl_opts)
+            ydl_opts["format"] = "bestaudio/best"
+            ydl_opts["postprocessors"] = [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }]
             final_ext = "mp3"
         else:
             # Fallback without FFmpeg: download best raw audio
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": out_template,
-                "nopart": True,
-                "progress_hooks": [progress_hook],
-                "quiet": True,
-                "no_warnings": True,
-                "http_headers": DEFAULT_HEADERS,
-                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
-            }
+            ydl_opts = dict(base_ydl_opts)
+            ydl_opts["format"] = "bestaudio/best"
             final_ext = "m4a"
     else:
         # Video format selection
@@ -389,19 +506,11 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
                     "bestvideo+bestaudio/best"
                 )
 
-            ydl_opts = {
-                "format": fmt_str,
-                "outtmpl": out_template,
-                "nopart": True,
-                "merge_output_format": "mp4",
-                "postprocessor_args": {
-                    "merger": ["-c:v", "copy", "-c:a", "aac"]
-                },
-                "progress_hooks": [progress_hook],
-                "quiet": True,
-                "no_warnings": True,
-                "http_headers": DEFAULT_HEADERS,
-                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
+            ydl_opts = dict(base_ydl_opts)
+            ydl_opts["format"] = fmt_str
+            ydl_opts["merge_output_format"] = "mp4"
+            ydl_opts["postprocessor_args"] = {
+                "merger": ["-c:v", "copy", "-c:a", "aac"]
             }
         else:
             # When FFmpeg is NOT present (e.g. serverless containers), download pre-merged progressive streams
@@ -416,16 +525,8 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
             else:
                 fmt_str = "best[ext=mp4]/best"
 
-            ydl_opts = {
-                "format": fmt_str,
-                "outtmpl": out_template,
-                "nopart": True,
-                "progress_hooks": [progress_hook],
-                "quiet": True,
-                "no_warnings": True,
-                "http_headers": DEFAULT_HEADERS,
-                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
-            }
+            ydl_opts = dict(base_ydl_opts)
+            ydl_opts["format"] = fmt_str
 
         final_ext = "mp4"
 
@@ -660,7 +761,7 @@ def stream_proxy():
             "Accept": "*/*",
         }
         r = requests.get(target_url, headers=req_headers, stream=True, timeout=30)
-        
+
         def generate():
             for chunk in r.iter_content(chunk_size=65536):
                 if chunk:
@@ -763,6 +864,7 @@ def system_health():
             "ffmpeg_ready": ffmpeg_installed,
             "ffmpeg_version": ffmpeg_version,
             "is_serverless": IS_SERVERLESS,
+            "has_cookies": HAS_COOKIES,
             "local_downloads_path": os.path.abspath(DOWNLOADS_DIR),
             "storage": disk_info,
             "active_tasks": active_count,

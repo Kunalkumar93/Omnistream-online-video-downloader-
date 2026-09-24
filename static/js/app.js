@@ -493,6 +493,10 @@ document.addEventListener('DOMContentLoaded', () => {
       setFormatType('video');
     }
 
+    if (media.cloud_notice) {
+      showToast(media.cloud_notice, 'info');
+    }
+
     inspectorCard.style.display = 'block';
     inspectorCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
