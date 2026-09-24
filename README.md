@@ -80,6 +80,22 @@ Built with an engineered backend pipeline powered by **yt-dlp** and **FFmpeg**, 
 
 ---
 
+## 🌐 Deployment (Local vs Cloud vs Vercel)
+
+### 1. Local Machine (Recommended for Full Power & FFmpeg Muxing)
+- Run `run.bat` or `python app.py`.
+- Full FFmpeg transcoding, 4K/UHD merging, and lossless MP3 conversion are supported with zero timeouts.
+
+### 2. Vercel Serverless Deployment
+- Pre-configured with `vercel.json` for one-click deployment.
+- **Note on Serverless Limits**: Vercel functions have a 10-15s execution timeout and a read-only filesystem. OmniStream automatically adapts by using `/tmp` and providing **Instant Direct Save** buttons to download directly from the source CDN.
+- YouTube bot protections on cloud IPs are automatically handled via Android/iOS client extractors.
+
+### 3. Persistent Cloud Hosting (Render / Railway / Docker)
+- For a 24/7 web-accessible server with full background downloading and FFmpeg support, deploy on **Render** (Web Service), **Railway**, or **Fly.io** using Python 3 and FFmpeg buildpacks.
+
+---
+
 ## 🛡️ License & Disclaimer
 
 This project is intended strictly for personal archiving and educational purposes. Always respect content creators' rights, copyright regulations, and platform terms of service.

@@ -4,21 +4,54 @@ import time
 import json
 import uuid
 import shutil
+import tempfile
 import threading
 import logging
 import subprocess
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
 import yt_dlp
+import requests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
-os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+# Environment & Serverless Detection (Vercel, AWS Lambda, etc.)
+IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
+# Determine writable downloads directory
+if IS_SERVERLESS:
+    DOWNLOADS_DIR = os.path.join(tempfile.gettempdir(), "omnistream_downloads")
+else:
+    DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
+
+# Verify write permissions, fall back to /tmp if read-only
+try:
+    os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+    test_probe = os.path.join(DOWNLOADS_DIR, ".write_probe")
+    with open(test_probe, "w") as f:
+        f.write("ok")
+    os.remove(test_probe)
+except Exception as e:
+    logger.warning(f"Storage path {DOWNLOADS_DIR} is not writable ({e}). Switching to temp directory.")
+    DOWNLOADS_DIR = os.path.join(tempfile.gettempdir(), "omnistream_downloads")
+    os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
 os.makedirs(STATIC_DIR, exist_ok=True)
+
+# Detect if FFmpeg / FFprobe binaries are available in PATH
+def detect_ffmpeg() -> bool:
+    try:
+        res = subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=2)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+HAS_FFMPEG = detect_ffmpeg()
+logger.info(f"OmniStream Engine initialized. Serverless={IS_SERVERLESS}, FFmpeg={HAS_FFMPEG}, Downloads={DOWNLOADS_DIR}")
 
 app = Flask(__name__, static_folder="static")
 CORS(app)
@@ -26,6 +59,24 @@ CORS(app)
 # In-memory dictionary tracking download tasks
 tasks = {}
 tasks_lock = threading.Lock()
+
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Mode": "navigate",
+}
+
+DEFAULT_EXTRACTOR_ARGS = {
+    "youtube": {
+        # Using android and ios clients bypasses bot challenges & sign-in requirements on datacenter/cloud IPs
+        "player_client": ["android", "ios", "mweb", "web"],
+        "player_skip": ["webpage", "configs"],
+    },
+    "twitter": {
+        "api": ["syndication", "graphql"]
+    }
+}
 
 def sanitize_filename(name: str) -> str:
     """
@@ -103,8 +154,9 @@ def periodic_cleanup():
             logger.error(f"Error in cleanup: {e}")
         time.sleep(300)
 
-cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
-cleanup_thread.start()
+if not IS_SERVERLESS:
+    cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
+    cleanup_thread.start()
 
 @app.route("/")
 def index():
@@ -129,6 +181,8 @@ def get_info():
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": False,
+        "http_headers": DEFAULT_HEADERS,
+        "extractor_args": DEFAULT_EXTRACTOR_ARGS,
     }
 
     try:
@@ -140,7 +194,9 @@ def get_info():
         if "Unsupported URL" in err_msg:
             err_msg = "This URL is not supported or is invalid."
         elif "Private video" in err_msg or "Sign in" in err_msg:
-            err_msg = "This video is private, age-restricted, or requires login."
+            err_msg = "This video is private, age-restricted, or requires platform login."
+        elif "bot" in err_msg.lower():
+            err_msg = "Source platform bot protection active. Please try again in a few moments."
         else:
             err_msg = re.sub(r'ERROR:\s*', '', err_msg)
         return jsonify({"success": False, "error": err_msg}), 400
@@ -156,10 +212,20 @@ def get_info():
     # Available formats analysis
     formats = info.get("formats") or []
     video_resolutions = {}
+    best_direct_url = None
 
     for f in formats:
         height = f.get("height")
         vcodec = f.get("vcodec")
+        acodec = f.get("acodec")
+        f_url = f.get("url")
+
+        is_progressive = bool(vcodec and vcodec != "none" and acodec and acodec != "none")
+
+        if f_url and f_url.startswith("http") and is_progressive:
+            if not best_direct_url or (height and height >= (best_direct_url.get("height") or 0)):
+                best_direct_url = {"url": f_url, "height": height or 0, "ext": f.get("ext") or "mp4"}
+
         if height and vcodec != "none":
             res_label = f"{height}p"
             f_size = f.get("filesize") or f.get("filesize_approx")
@@ -170,7 +236,9 @@ def get_info():
                     "ext": "mp4",
                     "fps": f.get("fps") or 30,
                     "size_bytes": f_size,
-                    "size_formatted": format_bytes(f_size) if f_size else None
+                    "size_formatted": format_bytes(f_size) if f_size else None,
+                    "direct_url": f_url if (f_url and f_url.startswith("http")) else None,
+                    "is_progressive": is_progressive
                 }
 
     available_videos = []
@@ -188,16 +256,22 @@ def get_info():
             v_item["badge"] = badge
             available_videos.append(v_item)
     else:
+        fallback_direct = info.get("url")
         available_videos.append({
             "height": 1080,
             "label": "Best Quality",
             "ext": "mp4",
             "badge": "Original HD",
-            "size_formatted": "Auto"
+            "size_formatted": "Auto",
+            "direct_url": fallback_direct if (fallback_direct and fallback_direct.startswith("http")) else None,
+            "is_progressive": True
         })
 
     if len(available_videos) > 6:
-        available_videos = [v for v in available_videos if v["height"] in [2160, 1440, 1080, 720, 480, 360]]
+        # Keep clean distribution
+        filtered = [v for v in available_videos if v["height"] in [2160, 1440, 1080, 720, 480, 360]]
+        if filtered:
+            available_videos = filtered
 
     audio_option = {
         "label": "MP3 Audio",
@@ -205,6 +279,9 @@ def get_info():
         "badge": "High Quality",
         "bitrate": "192 kbps"
     }
+
+    # Best direct URL fallback
+    direct_download_link = best_direct_url.get("url") if best_direct_url else (info.get("url") if info.get("url", "").startswith("http") else None)
 
     return jsonify({
         "success": True,
@@ -218,7 +295,10 @@ def get_info():
             "platform": platform,
             "original_url": url,
             "video_formats": available_videos,
-            "audio_format": audio_option
+            "audio_format": audio_option,
+            "direct_download_url": direct_download_link,
+            "has_ffmpeg": HAS_FFMPEG,
+            "is_serverless": IS_SERVERLESS
         }
     })
 
@@ -262,50 +342,91 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
     out_template = os.path.join(DOWNLOADS_DIR, f"{task_id}.%(ext)s")
 
     if media_type == "audio":
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": out_template,
-            "nopart": True,
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-            "progress_hooks": [progress_hook],
-            "quiet": True,
-            "no_warnings": True,
-        }
-        final_ext = "mp3"
-    else:
-        # Prioritize H.264 (avc1) video and AAC (mp4a) audio for 100% universal MP4 playback
-        # on Windows Media Player, QuickTime, Android, iOS, and TVs without codec errors.
-        if quality_height and isinstance(quality_height, int) and quality_height > 0:
-            fmt_str = (
-                f"bestvideo[height<={quality_height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
-                f"bestvideo[height<={quality_height}][vcodec^=avc1]+bestaudio/"
-                f"bestvideo[height<={quality_height}]+bestaudio/"
-                f"best[height<={quality_height}]/best"
-            )
+        if HAS_FFMPEG:
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "outtmpl": out_template,
+                "nopart": True,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }],
+                "progress_hooks": [progress_hook],
+                "quiet": True,
+                "no_warnings": True,
+                "http_headers": DEFAULT_HEADERS,
+                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
+            }
+            final_ext = "mp3"
         else:
-            fmt_str = (
-                "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
-                "bestvideo[vcodec^=avc1]+bestaudio/"
-                "bestvideo+bestaudio/best"
-            )
+            # Fallback without FFmpeg: download best raw audio
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "outtmpl": out_template,
+                "nopart": True,
+                "progress_hooks": [progress_hook],
+                "quiet": True,
+                "no_warnings": True,
+                "http_headers": DEFAULT_HEADERS,
+                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
+            }
+            final_ext = "m4a"
+    else:
+        # Video format selection
+        if HAS_FFMPEG:
+            if quality_height and isinstance(quality_height, int) and quality_height > 0:
+                fmt_str = (
+                    f"bestvideo[height<={quality_height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+                    f"bestvideo[height<={quality_height}][vcodec^=avc1]+bestaudio/"
+                    f"bestvideo[height<={quality_height}]+bestaudio/"
+                    f"best[height<={quality_height}]/best"
+                )
+            else:
+                fmt_str = (
+                    "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+                    "bestvideo[vcodec^=avc1]+bestaudio/"
+                    "bestvideo+bestaudio/best"
+                )
 
-        ydl_opts = {
-            "format": fmt_str,
-            "outtmpl": out_template,
-            "nopart": True,
-            "merge_output_format": "mp4",
-            # Convert audio stream to AAC during muxing so Windows Media Player never throws error 0xc00d36c4
-            "postprocessor_args": {
-                "merger": ["-c:v", "copy", "-c:a", "aac"]
-            },
-            "progress_hooks": [progress_hook],
-            "quiet": True,
-            "no_warnings": True,
-        }
+            ydl_opts = {
+                "format": fmt_str,
+                "outtmpl": out_template,
+                "nopart": True,
+                "merge_output_format": "mp4",
+                "postprocessor_args": {
+                    "merger": ["-c:v", "copy", "-c:a", "aac"]
+                },
+                "progress_hooks": [progress_hook],
+                "quiet": True,
+                "no_warnings": True,
+                "http_headers": DEFAULT_HEADERS,
+                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
+            }
+        else:
+            # When FFmpeg is NOT present (e.g. serverless containers), download pre-merged progressive streams
+            # to prevent yt-dlp aborting with 'ffprobe and ffmpeg not found'
+            if quality_height and isinstance(quality_height, int) and quality_height > 0:
+                fmt_str = (
+                    f"best[height<={quality_height}][ext=mp4]/"
+                    f"best[height<={quality_height}]/"
+                    f"best[ext=mp4]/"
+                    f"best"
+                )
+            else:
+                fmt_str = "best[ext=mp4]/best"
+
+            ydl_opts = {
+                "format": fmt_str,
+                "outtmpl": out_template,
+                "nopart": True,
+                "progress_hooks": [progress_hook],
+                "quiet": True,
+                "no_warnings": True,
+                "http_headers": DEFAULT_HEADERS,
+                "extractor_args": DEFAULT_EXTRACTOR_ARGS,
+            }
+
         final_ext = "mp4"
 
     try:
@@ -319,13 +440,17 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
             for f in os.listdir(DOWNLOADS_DIR):
                 if f.startswith(task_id) and not f.endswith((".part", ".ytdl")):
                     found_file = os.path.join(DOWNLOADS_DIR, f)
+                    _, actual_ext = os.path.splitext(f)
+                    if actual_ext:
+                        final_ext = actual_ext.lstrip(".")
                     break
 
         if not found_file or not os.path.exists(found_file):
             raise Exception("Downloaded file could not be assembled.")
 
         # Guaranteed 100% Universal Playback normalization for Windows Media Player & all devices
-        if media_type == "video":
+        # (Only performed when FFmpeg is available)
+        if media_type == "video" and HAS_FFMPEG:
             with tasks_lock:
                 tasks[task_id]["status"] = "merging"
                 tasks[task_id]["speed"] = "Codec Verification"
@@ -345,10 +470,8 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
                 is_aac = a_codec == "aac"
                 is_mp4 = found_file.lower().endswith(".mp4")
 
-                # If the video is not H.264 or audio is not AAC or container is not MP4,
-                # transcode/remux so Windows Media Player never throws error 0xc00d36c4
                 if not (is_h264 and is_aac and is_mp4):
-                    logger.info(f"Task {task_id} video format ({v_codec}/{a_codec}) requires normalization to H.264+AAC for universal playback")
+                    logger.info(f"Task {task_id} video format ({v_codec}/{a_codec}) requires normalization to H.264+AAC")
                     target_mp4 = os.path.join(DOWNLOADS_DIR, f"{task_id}_universal.mp4")
                     ffmpeg_cmd = ["ffmpeg", "-y", "-i", found_file]
                     if is_h264:
@@ -369,10 +492,11 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
                     except Exception:
                         pass
                     found_file = target_mp4
+                    final_ext = "mp4"
             except Exception as e:
                 logger.warning(f"Codec normalization fallback: {e}")
 
-        elif media_type == "audio":
+        elif media_type == "audio" and HAS_FFMPEG:
             if not found_file.lower().endswith(".mp3"):
                 target_mp3 = os.path.join(DOWNLOADS_DIR, f"{task_id}_universal.mp3")
                 try:
@@ -383,6 +507,7 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
                     except Exception:
                         pass
                     found_file = target_mp3
+                    final_ext = "mp3"
                 except Exception as e:
                     logger.warning(f"Audio normalization fallback: {e}")
 
@@ -397,12 +522,27 @@ def run_download_thread(task_id: str, url: str, media_type: str, quality_height:
             logger.info(f"Task {task_id} ready for browser download: {safe_filename} ({tasks[task_id]['file_size']})")
 
     except Exception as e:
+        err_str = str(e)
         import traceback
         tb = traceback.format_exc()
         logger.error(f"Download thread error for {task_id}: {tb}")
+
+        # Human-friendly error translation instead of raw traceback dump
+        if "Read-only file system" in err_str:
+            friendly_err = "Serverless filesystem is read-only. Please use Instant Direct Download."
+        elif "ffprobe and ffmpeg not found" in err_str or "requested merging" in err_str:
+            friendly_err = "FFmpeg is not installed on this server to merge streams. Please use Instant Direct Download."
+        elif "Sign in to confirm" in err_str or "bot" in err_str.lower():
+            friendly_err = "Source platform bot protection active on cloud host. Please use Instant Direct Download."
+        elif "HTTP Error 403" in err_str:
+            friendly_err = "Platform access denied (HTTP 403). Stream expired or requires direct browser save."
+        else:
+            clean_first = re.sub(r'ERROR:\s*', '', err_str).split('\n')[0].strip()
+            friendly_err = clean_first if len(clean_first) < 140 else clean_first[:140] + "..."
+
         with tasks_lock:
             tasks[task_id]["status"] = "error"
-            tasks[task_id]["error"] = tb
+            tasks[task_id]["error"] = friendly_err
 
 @app.route("/api/download", methods=["POST"])
 def start_download():
@@ -502,6 +642,40 @@ def download_file(task_id):
     response.headers["Content-Disposition"] = f'attachment; filename="{final_filename}"'
     return response
 
+# Stream proxy endpoint: streams remote video/audio directly without storing on disk
+@app.route("/api/stream", methods=["GET"])
+def stream_proxy():
+    target_url = request.args.get("url")
+    filename = request.args.get("filename") or "media_stream.mp4"
+    safe_filename = sanitize_filename(filename)
+    if not safe_filename.endswith((".mp4", ".mp3", ".webm", ".m4a")):
+        safe_filename += ".mp4"
+
+    if not target_url or not target_url.startswith("http"):
+        return jsonify({"success": False, "error": "Invalid target stream URL"}), 400
+
+    try:
+        req_headers = {
+            "User-Agent": DEFAULT_HEADERS["User-Agent"],
+            "Accept": "*/*",
+        }
+        r = requests.get(target_url, headers=req_headers, stream=True, timeout=30)
+        
+        def generate():
+            for chunk in r.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
+
+        content_type = r.headers.get("Content-Type", "video/mp4")
+        resp = Response(stream_with_context(generate()), content_type=content_type)
+        resp.headers["Content-Disposition"] = f'attachment; filename="{safe_filename}"'
+        if "Content-Length" in r.headers:
+            resp.headers["Content-Length"] = r.headers["Content-Length"]
+        return resp
+    except Exception as e:
+        logger.error(f"Stream proxy failed: {e}")
+        return jsonify({"success": False, "error": f"Streaming proxy failed: {str(e)}"}), 500
+
 @app.route("/api/open-folder/<task_id>", methods=["POST"])
 def open_file_folder(task_id):
     with tasks_lock:
@@ -512,8 +686,11 @@ def open_file_folder(task_id):
 
     fpath = os.path.abspath(task["filepath"])
     if os.path.exists(fpath):
-        subprocess.Popen(f'explorer /select,"{fpath}"')
-        return jsonify({"success": True})
+        try:
+            subprocess.Popen(f'explorer /select,"{fpath}"')
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
     return jsonify({"success": False, "error": "File does not exist on disk"}), 404
 
 @app.route("/api/downloads", methods=["GET"])
@@ -550,21 +727,19 @@ def cancel_download(task_id):
 
 @app.route("/api/system/health", methods=["GET"])
 def system_health():
-    # Check FFmpeg
-    ffmpeg_installed = False
+    ffmpeg_installed = HAS_FFMPEG
     ffmpeg_version = "Not detected"
-    try:
-        res = subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3)
-        if res.returncode == 0:
-            ffmpeg_installed = True
-            first_line = res.stdout.split("\n")[0]
-            m = re.search(r'ffmpeg version\s+([^\s]+)', first_line)
-            ffmpeg_version = m.group(1) if m else "Ready"
-    except Exception:
-        pass
+    if ffmpeg_installed:
+        try:
+            res = subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3)
+            if res.returncode == 0:
+                first_line = res.stdout.split("\n")[0]
+                m = re.search(r'ffmpeg version\s+([^\s]+)', first_line)
+                ffmpeg_version = m.group(1) if m else "Ready"
+        except Exception:
+            pass
 
-    # Check disk space
-    import shutil
+    # Disk space check
     try:
         total, used, free = shutil.disk_usage(DOWNLOADS_DIR)
         disk_info = {
@@ -576,7 +751,6 @@ def system_health():
     except Exception:
         disk_info = {"total": "Unknown", "used": "Unknown", "free": "Unknown", "percent_used": 0}
 
-    # Task metrics
     with tasks_lock:
         active_count = sum(1 for t in tasks.values() if t.get("status") in ["queued", "downloading", "merging"])
         completed_count = sum(1 for t in tasks.values() if t.get("status") == "completed")
@@ -588,6 +762,7 @@ def system_health():
             "ytdlp_version": yt_dlp.version.__version__,
             "ffmpeg_ready": ffmpeg_installed,
             "ffmpeg_version": ffmpeg_version,
+            "is_serverless": IS_SERVERLESS,
             "local_downloads_path": os.path.abspath(DOWNLOADS_DIR),
             "storage": disk_info,
             "active_tasks": active_count,

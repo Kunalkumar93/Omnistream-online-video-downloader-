@@ -119,6 +119,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const qualitySelectionGrid = document.getElementById('quality-selection-grid');
   const btnStartDownload = document.getElementById('btn-start-download');
   const btnStartDownloadLabel = document.getElementById('btn-start-download-label');
+  const btnInstantDirect = document.getElementById('btn-instant-direct');
+  const btnInstantDirectLabel = document.getElementById('btn-instant-direct-label');
 
   // Inline Download Card
   const inlineDownloadCard = document.getElementById('inline-download-card');
@@ -132,6 +134,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const inlineDlTotal = document.getElementById('inline-dl-total');
   const inlineDlEta = document.getElementById('inline-dl-eta');
   const inlineDlCompletedActions = document.getElementById('inline-dl-completed-actions');
+  const inlineDlErrorBox = document.getElementById('inline-dl-error-box');
+  const inlineDlErrorMsg = document.getElementById('inline-dl-error-msg');
+  const btnInlineFallbackDirect = document.getElementById('btn-inline-fallback-direct');
   const btnInlineDirectDownload = document.getElementById('btn-inline-direct-download');
   const btnInlineOpenFolder = document.getElementById('btn-inline-open-folder');
   const btnInlineCancel = document.getElementById('btn-inline-cancel');
@@ -515,6 +520,30 @@ document.addEventListener('DOMContentLoaded', () => {
   if (segmentBtnVideo) segmentBtnVideo.addEventListener('click', () => setFormatType('video'));
   if (segmentBtnAudio) segmentBtnAudio.addEventListener('click', () => setFormatType('audio'));
 
+  // Direct Stream Browser Downloader
+  function triggerDirectDownload(directUrl, title) {
+    if (!directUrl) {
+      showToast('No direct stream link available for this source', 'error');
+      return;
+    }
+    showToast('Starting instant stream download...', 'info');
+    const safeTitle = (title || 'video').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().substring(0, 50) || 'video';
+    const proxyUrl = `/api/stream?url=${encodeURIComponent(directUrl)}&filename=${encodeURIComponent(safeTitle + '.mp4')}`;
+    const a = document.createElement('a');
+    a.href = proxyUrl;
+    a.setAttribute('download', `${safeTitle}.mp4`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  if (btnInstantDirect) {
+    btnInstantDirect.addEventListener('click', () => {
+      const targetUrl = State.selectedQuality?.direct_url || State.currentMedia?.direct_download_url;
+      triggerDirectDownload(targetUrl, State.currentMedia?.title);
+    });
+  }
+
   // Render Video Quality Options
   function renderVideoFormats() {
     const formats = State.currentMedia?.video_formats || [];
@@ -527,6 +556,7 @@ document.addEventListener('DOMContentLoaded', () => {
       recDescText.textContent = 'Universal H.264 profile + AAC stereo audio';
       recSizeText.textContent = 'Direct Stream';
       btnStartDownloadLabel.textContent = 'Download Best Quality MP4';
+      if (btnInstantDirect) btnInstantDirect.style.display = 'none';
       return;
     }
 
@@ -538,6 +568,17 @@ document.addEventListener('DOMContentLoaded', () => {
     recDescText.textContent = 'Enforced H.264 (avc1) + AAC 192k • Universal Windows & Mobile';
     recSizeText.textContent = recommended.size_formatted || 'Auto Bitrate';
     btnStartDownloadLabel.textContent = `Download ${recommended.label || `${recommended.height}p`} MP4`;
+
+    // Direct save button visibility
+    const directStreamUrl = recommended.direct_url || State.currentMedia?.direct_download_url;
+    if (btnInstantDirect) {
+      if (directStreamUrl) {
+        btnInstantDirect.style.display = 'inline-flex';
+        btnInstantDirectLabel.textContent = `Direct Save (${recommended.label || 'MP4'})`;
+      } else {
+        btnInstantDirect.style.display = 'none';
+      }
+    }
 
     // Populate expandable grid
     formats.forEach((fmt, idx) => {
@@ -552,6 +593,13 @@ document.addEventListener('DOMContentLoaded', () => {
         cell.classList.add('selected');
         State.selectedQuality = fmt;
         btnStartDownloadLabel.textContent = `Download ${fmt.label || `${fmt.height}p`} MP4`;
+        if (btnInstantDirect) {
+          const cellDirect = fmt.direct_url || State.currentMedia?.direct_download_url;
+          if (cellDirect) {
+            btnInstantDirect.style.display = 'inline-flex';
+            btnInstantDirectLabel.textContent = `Direct Save (${fmt.label || 'MP4'})`;
+          }
+        }
       });
       qualitySelectionGrid.appendChild(cell);
     });
@@ -576,6 +624,10 @@ document.addEventListener('DOMContentLoaded', () => {
     recDescText.textContent = 'High-bitrate VBR MP3 with ID3 track & artist metadata';
     recSizeText.textContent = '~5 - 15 MB';
     btnStartDownloadLabel.textContent = `Download ${audioFmt.bitrate} MP3`;
+
+    if (btnInstantDirect) {
+      btnInstantDirect.style.display = 'none';
+    }
 
     // Audio bitrates grid
     const bitrates = ['320 kbps (Studio)', '256 kbps (HQ)', '192 kbps (Standard)', '128 kbps (Compact)'];
@@ -681,6 +733,8 @@ document.addEventListener('DOMContentLoaded', () => {
     inlineDlTitle.textContent = title;
     inlineDlStatusLabel.textContent = 'Connecting stream...';
     inlineDlStatus.className = 'dl-status-badge';
+    inlineDlStatus.style.borderColor = '';
+    inlineDlStatus.style.color = '';
     inlineDlProgressFill.style.width = '5%';
     inlineDlPct.textContent = '5%';
     inlineDlSpeed.textContent = 'Negotiating TCP';
@@ -688,6 +742,7 @@ document.addEventListener('DOMContentLoaded', () => {
     inlineDlDownloaded.textContent = '0 MB';
     inlineDlTotal.textContent = 'Probing';
     if (inlineDlCompletedActions) inlineDlCompletedActions.style.display = 'none';
+    if (inlineDlErrorBox) inlineDlErrorBox.style.display = 'none';
     inlineDownloadCard.style.display = 'block';
     inlineDownloadCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -842,10 +897,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handleTaskFailed(taskId, task) {
     if (State.inlineTaskId === taskId) {
-      inlineDlStatusLabel.textContent = task.error || 'Download failed';
+      inlineDlStatusLabel.textContent = 'Processing Halted';
       inlineDlStatus.style.borderColor = 'var(--error)';
       inlineDlStatus.style.color = 'var(--error)';
-      showToast(task.error || 'Download job failed', 'error');
+      inlineDlSpeed.textContent = 'Error';
+      inlineDlEta.textContent = 'Halted';
+
+      const cleanMsg = task.error || 'Server processing could not complete on this environment.';
+      if (inlineDlErrorBox) {
+        inlineDlErrorMsg.textContent = cleanMsg;
+        inlineDlErrorBox.style.display = 'flex';
+
+        const fallbackUrl = State.selectedQuality?.direct_url || State.currentMedia?.direct_download_url;
+        if (fallbackUrl && btnInlineFallbackDirect) {
+          btnInlineFallbackDirect.style.display = 'inline-block';
+          btnInlineFallbackDirect.onclick = () => {
+            triggerDirectDownload(fallbackUrl, State.currentMedia?.title);
+          };
+        } else if (btnInlineFallbackDirect) {
+          btnInlineFallbackDirect.style.display = 'none';
+        }
+      }
+      showToast(cleanMsg, 'error');
     }
     updateQueueBadges();
   }
